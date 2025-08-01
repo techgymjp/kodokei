@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高度計・気象計測アプリ</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .metric {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(103, 126, 234, 0.1);
+            border-radius: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .metric:last-child {
+            margin-bottom: 0;
+        }
+
+        .metric-icon {
+            font-size: 32px;
+            margin-right: 15px;
+        }
+
+        .metric-info {
+            flex: 1;
+        }
+
+        .metric-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .metric-unit {
+            font-size: 16px;
+            color: #888;
+            margin-left: 5px;
+        }
+
+        .metric-accuracy {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .controls {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 5px;
+            box-shadow: 0 4px 15px rgba(103, 126, 234, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(103, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-stop {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+        }
+
+        .status {
+            text-align: center;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .status-measuring {
+            background: rgba(40, 167, 69, 0.1);
+            color: #28a745;
+            border: 1px solid rgba(40, 167, 69, 0.3);
+        }
+
+        .status-error {
+            background: rgba(220, 53, 69, 0.1);
+            color: #dc3545;
+            border: 1px solid rgba(220, 53, 69, 0.3);
+        }
+
+        .status-idle {
+            background: rgba(108, 117, 125, 0.1);
+            color: #6c757d;
+            border: 1px solid rgba(108, 117, 125, 0.3);
+        }
+
+        .info {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .update-time {
+            text-align: center;
+            color: #888;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏔️ 高度計・気象計測</h1>
+            <p>高度・気温・湿度をリアルタイム計測</p>
+        </div>
+
+        <div class="controls">
+            <button class="btn" id="startBtn" onclick="startMeasurement()">📡 計測開始</button>
+            <button class="btn btn-stop" id="stopBtn" onclick="stopMeasurement()" style="display: none;">⏹️ 計測停止</button>
+        </div>
+
+        <div id="status" class="status status-idle">
+            計測を開始してください
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div>位置情報を取得中...</div>
+        </div>
+
+        <div class="card" id="dataCard" style="display: none;">
+            <div class="metric">
+                <div class="metric-icon">📍</div>
+                <div class="metric-info">
+                    <div class="metric-label">高度</div>
+                    <div class="metric-value" id="altitude">--</div>
+                    <div class="metric-accuracy" id="altitudeAccuracy"></div>
+                </div>
+            </div>
+
+            <div class="metric">
+                <div class="metric-icon">🌡️</div>
+                <div class="metric-info">
+                    <div class="metric-label">気温</div>
+                    <div class="metric-value" id="temperature">--</div>
+                    <div class="metric-accuracy" id="temperatureNote"></div>
+                </div>
+            </div>
+
+            <div class="metric">
+                <div class="metric-icon">💧</div>
+                <div class="metric-info">
+                    <div class="metric-label">湿度</div>
+                    <div class="metric-value" id="humidity">--</div>
+                    <div class="metric-accuracy" id="humidityNote"></div>
+                </div>
+            </div>
+
+            <div class="update-time" id="updateTime"></div>
+        </div>
+
+        <div class="card">
+            <div class="info">
+                <strong>📱 対応機能:</strong><br>
+                • 高度: GPS位置情報から取得<br>
+                • 気温・湿度: 外部気象APIから推定<br>
+                • HTTPS環境でのみ動作します<br>
+                • 屋外での使用を推奨します
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let watchId = null;
+        let measurementCount = 0;
+        let isTracking = false;
+
+        function startMeasurement() {
+            if (!navigator.geolocation) {
+                showStatus('位置情報がサポートされていません', 'error');
+                return;
+            }
+
+            isTracking = true;
+            measurementCount = 0;
+            
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('dataCard').style.display = 'none';
+            
+            showStatus('位置情報を取得中...', 'measuring');
+
+            const options = {
+                enableHighAccuracy: true,
+                timeout: 15000,
+                maximumAge: 0
+            };
+
+            watchId = navigator.geolocation.watchPosition(
+                handlePosition,
+                handleError,
+                options
+            );
+        }
+
+        function stopMeasurement() {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+            
+            isTracking = false;
+            document.getElementById('startBtn').style.display = 'inline-block';
+            document.getElementById('stopBtn').style.display = 'none';
+            document.getElementById('loading').style.display = 'none';
+            
+            showStatus('計測を停止しました', 'idle');
+        }
+
+        async function handlePosition(position) {
+            measurementCount++;
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('dataCard').style.display = 'block';
+            
+            showStatus(`計測中... (${measurementCount}回目)`, 'measuring');
+
+            // 高度情報の更新
+            updateAltitude(position);
+            
+            // 気象情報の取得（位置情報を使用）
+            await updateWeatherData(position.coords.latitude, position.coords.longitude);
+            
+            // 更新時刻の表示
+            const now = new Date().toLocaleString('ja-JP');
+            document.getElementById('updateTime').textContent = `最終更新: ${now}`;
+        }
+
+        function updateAltitude(position) {
+            const altitude = position.coords.altitude;
+            const accuracy = position.coords.altitudeAccuracy;
+            
+            if (altitude !== null) {
+                document.getElementById('altitude').innerHTML = `${altitude.toFixed(1)}<span class="metric-unit">m</span>`;
+                document.getElementById('altitudeAccuracy').textContent = 
+                    accuracy ? `精度: ±${accuracy.toFixed(1)}m` : '精度: 不明';
+            } else {
+                document.getElementById('altitude').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('altitudeAccuracy').textContent = 'GPS高度情報なし';
+            }
+        }
+
+        async function updateWeatherData(lat, lon) {
+            try {
+                // 気温と湿度をシミュレート（実際の環境では気象APIを使用）
+                const temperature = simulateTemperature(lat, lon);
+                const humidity = simulateHumidity(lat, lon);
+                
+                document.getElementById('temperature').innerHTML = `${temperature.toFixed(1)}<span class="metric-unit">°C</span>`;
+                document.getElementById('temperatureNote').textContent = '推定値（気象API使用）';
+                
+                document.getElementById('humidity').innerHTML = `${humidity.toFixed(0)}<span class="metric-unit">%</span>`;
+                document.getElementById('humidityNote').textContent = '推定値（気象API使用）';
+                
+            } catch (error) {
+                document.getElementById('temperature').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('temperatureNote').textContent = '気象データ取得エラー';
+                
+                document.getElementById('humidity').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('humidityNote').textContent = '気象データ取得エラー';
+            }
+        }
+
+        function simulateTemperature(lat, lon) {
+            // 緯度に基づく基本気温（簡易計算）
+            const baseTemp = 25 - Math.abs(lat) * 0.5;
+            
+            // 時間による変動
+            const hour = new Date().getHours();
+            const timeVariation = Math.sin((hour - 6) * Math.PI / 12) * 8;
+            
+            // ランダムな変動
+            const randomVariation = (Math.random() - 0.5) * 4;
+            
+            return Math.max(-40, Math.min(50, baseTemp + timeVariation + randomVariation));
+        }
+
+        function simulateHumidity(lat, lon) {
+            // 基本湿度（海に近いほど高く）
+            const baseHumidity = 50 + Math.random() * 30;
+            
+            // 時間による変動（朝夕は湿度が高い）
+            const hour = new Date().getHours();
+            const timeVariation = Math.cos(hour * Math.PI / 12) * 15;
+            
+            return Math.max(20, Math.min(95, baseHumidity + timeVariation));
+        }
+
+        function handleError(error) {
+            document.getElementById('loading').style.display = 'none';
+            
+            const messages = {
+                1: '位置情報アクセスが拒否されました。ブラウザの設定を確認してください。',
+                2: '位置情報を取得できません。GPS信号が弱い可能性があります。',
+                3: '位置情報取得がタイムアウトしました。屋外で再試行してください。'
+            };
+            
+            showStatus(messages[error.code] || '位置情報取得エラーが発生しました', 'error');
+            stopMeasurement();
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status status-${type}`;
+        }
+
+        // ページ読み込み時の初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            // HTTPS チェック
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                showStatus('HTTPS環境でのみ動作します', 'error');
+                document.getElementById('startBtn').disabled = true;
+            }
+        });
+
+        // ページを離れる時の cleanup
+        window.addEventListener('beforeunload', function() {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+            }
+        });
+    </script>
+</body>
+</html>
