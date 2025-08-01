@@ -201,6 +201,13 @@
             <button class="btn btn-stop" id="stopBtn" onclick="stopMeasurement()" style="display: none;">⏹️ 計測停止</button>
         </div>
 
+        <div class="card" id="debugCard" style="display: none;">
+            <div class="info">
+                <strong>🔧 デバッグ情報:</strong><br>
+                <div id="debugInfo" style="font-family: monospace; font-size: 11px; color: #555; white-space: pre-line; margin-top: 10px; max-height: 150px; overflow-y: auto;"></div>
+            </div>
+        </div>
+
         <div id="status" class="status status-idle">
             計測を開始してください
         </div>
@@ -247,7 +254,8 @@
                 • 高度: GPS位置情報から取得<br>
                 • 気温・湿度: 外部気象APIから推定<br>
                 • HTTPS環境でのみ動作します<br>
-                • 屋外での使用を推奨します
+                • 屋外での使用を推奨します<br>
+                • 高度情報が取得できない場合、気象データは表示されません
             </div>
         </div>
     </div>
@@ -257,6 +265,22 @@
         let measurementCount = 0;
         let isTracking = false;
 
+        // デバッグ情報を画面に表示する関数
+        function addDebugLog(message) {
+            const debugInfo = document.getElementById('debugInfo');
+            const debugCard = document.getElementById('debugCard');
+            const timestamp = new Date().toLocaleTimeString('ja-JP');
+            
+            debugCard.style.display = 'block';
+            debugInfo.textContent += `[${timestamp}] ${message}\n`;
+            
+            // 古いログを削除（最新10行のみ保持）
+            const lines = debugInfo.textContent.split('\n');
+            if (lines.length > 11) {
+                debugInfo.textContent = lines.slice(-11).join('\n');
+            }
+        }
+
         function startMeasurement() {
             if (!navigator.geolocation) {
                 showStatus('位置情報がサポートされていません', 'error');
@@ -265,6 +289,10 @@
 
             isTracking = true;
             measurementCount = 0;
+            
+            // デバッグログをクリア
+            document.getElementById('debugInfo').textContent = '';
+            addDebugLog('計測開始');
             
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'inline-block';
@@ -279,6 +307,7 @@
                 maximumAge: 0
             };
 
+            addDebugLog('位置情報取得開始');
             watchId = navigator.geolocation.watchPosition(
                 handlePosition,
                 handleError,
@@ -302,16 +331,30 @@
 
         async function handlePosition(position) {
             measurementCount++;
+            addDebugLog(`位置情報取得成功 (${measurementCount}回目)`);
+            addDebugLog(`緯度: ${position.coords.latitude.toFixed(4)}, 経度: ${position.coords.longitude.toFixed(4)}`);
+            
             document.getElementById('loading').style.display = 'none';
             document.getElementById('dataCard').style.display = 'block';
             
             showStatus(`計測中... (${measurementCount}回目)`, 'measuring');
 
-            // 高度情報の更新
-            updateAltitude(position);
+            // 高度情報の更新と取得可否の確認
+            const hasAltitude = updateAltitude(position);
+            addDebugLog(`高度取得: ${hasAltitude ? '成功' : '失敗'}`);
             
-            // 気象情報の取得（位置情報を使用）
-            await updateWeatherData(position.coords.latitude, position.coords.longitude);
+            // 高度が取得できる場合のみ気象情報を取得
+            if (hasAltitude) {
+                await updateWeatherData(position.coords.latitude, position.coords.longitude, position.coords.altitude);
+            } else {
+                addDebugLog('高度なしのため気象データスキップ');
+                // 高度が取得できない場合は気象データを非表示にする
+                document.getElementById('temperature').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('temperatureNote').textContent = '高度情報が必要です';
+                
+                document.getElementById('humidity').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('humidityNote').textContent = '高度情報が必要です';
+            }
             
             // 更新時刻の表示
             const now = new Date().toLocaleString('ja-JP');
@@ -322,29 +365,37 @@
             const altitude = position.coords.altitude;
             const accuracy = position.coords.altitudeAccuracy;
             
-            if (altitude !== null) {
+            addDebugLog(`高度情報: ${altitude}m, 精度: ${accuracy}m`);
+            
+            if (altitude !== null && altitude !== undefined) {
                 document.getElementById('altitude').innerHTML = `${altitude.toFixed(1)}<span class="metric-unit">m</span>`;
                 document.getElementById('altitudeAccuracy').textContent = 
                     accuracy ? `精度: ±${accuracy.toFixed(1)}m` : '精度: 不明';
+                return true; // 高度取得成功
             } else {
                 document.getElementById('altitude').innerHTML = `取得不可<span class="metric-unit"></span>`;
                 document.getElementById('altitudeAccuracy').textContent = 'GPS高度情報なし';
+                return false; // 高度取得失敗
             }
         }
 
-        async function updateWeatherData(lat, lon) {
+        async function updateWeatherData(lat, lon, altitude) {
             try {
-                // 気温と湿度をシミュレート（実際の環境では気象APIを使用）
-                const temperature = simulateTemperature(lat, lon);
-                const humidity = simulateHumidity(lat, lon);
+                addDebugLog('気象データ計算開始');
+                // 気温と湿度を高度を考慮してシミュレート
+                const temperature = simulateTemperature(lat, lon, altitude);
+                const humidity = simulateHumidity(lat, lon, altitude);
+                
+                addDebugLog(`計算結果: 気温${temperature.toFixed(1)}°C, 湿度${humidity.toFixed(0)}%`);
                 
                 document.getElementById('temperature').innerHTML = `${temperature.toFixed(1)}<span class="metric-unit">°C</span>`;
-                document.getElementById('temperatureNote').textContent = '推定値（気象API使用）';
+                document.getElementById('temperatureNote').textContent = '推定値（高度・位置情報基準）';
                 
                 document.getElementById('humidity').innerHTML = `${humidity.toFixed(0)}<span class="metric-unit">%</span>`;
-                document.getElementById('humidityNote').textContent = '推定値（気象API使用）';
+                document.getElementById('humidityNote').textContent = '推定値（高度・位置情報基準）';
                 
             } catch (error) {
+                addDebugLog(`エラー: ${error.message}`);
                 document.getElementById('temperature').innerHTML = `取得不可<span class="metric-unit"></span>`;
                 document.getElementById('temperatureNote').textContent = '気象データ取得エラー';
                 
@@ -353,29 +404,60 @@
             }
         }
 
-        function simulateTemperature(lat, lon) {
-            // 緯度に基づく基本気温（簡易計算）
-            const baseTemp = 25 - Math.abs(lat) * 0.5;
+        function simulateTemperature(lat, lon, altitude) {
+            // 現在の季節に応じた基準気温（8月なので夏季）
+            const month = new Date().getMonth(); // 0-11 (7=8月)
+            let baseTemp;
             
-            // 時間による変動
+            // 月別の平均気温（日本の平均的な値）
+            const monthlyAvgTemp = [5, 7, 11, 16, 21, 25, 28, 29, 25, 19, 13, 7];
+            baseTemp = monthlyAvgTemp[month];
+            
+            // 時間による変動（日較差: 最高気温は14時頃、最低気温は5時頃）
             const hour = new Date().getHours();
-            const timeVariation = Math.sin((hour - 6) * Math.PI / 12) * 8;
+            const timeVariation = Math.sin((hour - 5) * Math.PI / 12) * 4; // ±4度の変動
             
-            // ランダムな変動
-            const randomVariation = (Math.random() - 0.5) * 4;
+            // 高度による影響（100mごとに約0.6°C下がる）- 高度が低い場合は影響を小さく
+            const altitudeEffect = altitude > 0 ? -(altitude / 100) * 0.6 : 0;
             
-            return Math.max(-40, Math.min(50, baseTemp + timeVariation + randomVariation));
+            // 緯度による微調整（日本国内での緯度差による影響は小さく）
+            const latEffect = (lat < 35) ? (35 - lat) * 0.2 : -(lat - 35) * 0.2;
+            
+            // 小さなランダム変動
+            const randomVariation = (Math.random() - 0.5) * 2;
+            
+            const finalTemp = baseTemp + timeVariation + altitudeEffect + latEffect + randomVariation;
+            
+            // デバッグ情報を画面に表示
+            addDebugLog(`気温計算詳細:`);
+            addDebugLog(`基準${baseTemp}°C + 時間${timeVariation.toFixed(1)}°C + 高度${altitudeEffect.toFixed(1)}°C + 緯度${latEffect.toFixed(1)}°C + ランダム${randomVariation.toFixed(1)}°C`);
+            addDebugLog(`= ${finalTemp.toFixed(1)}°C`);
+            
+            // 現実的な範囲に制限
+            return Math.max(-10, Math.min(45, finalTemp));
         }
 
-        function simulateHumidity(lat, lon) {
-            // 基本湿度（海に近いほど高く）
-            const baseHumidity = 50 + Math.random() * 30;
+        function simulateHumidity(lat, lon, altitude) {
+            // 基本湿度（日本の平均的な湿度60%を基準）
+            const baseHumidity = 60;
+            
+            // 高度による影響（高度が上がると湿度は下がる傾向）
+            const altitudeEffect = -(altitude / 1000) * 10;
             
             // 時間による変動（朝夕は湿度が高い）
             const hour = new Date().getHours();
-            const timeVariation = Math.cos(hour * Math.PI / 12) * 15;
+            const timeVariation = Math.cos(hour * Math.PI / 12) * 10;
             
-            return Math.max(20, Math.min(95, baseHumidity + timeVariation));
+            // 季節による変動
+            const month = new Date().getMonth();
+            const seasonVariation = Math.sin((month - 6) * Math.PI / 6) * 15;
+            
+            // ランダムな変動
+            const randomVariation = (Math.random() - 0.5) * 10;
+            
+            const finalHumidity = baseHumidity + altitudeEffect + timeVariation + seasonVariation + randomVariation;
+            
+            return Math.max(20, Math.min(95, finalHumidity));
         }
 
         function handleError(error) {
@@ -387,7 +469,10 @@
                 3: '位置情報取得がタイムアウトしました。屋外で再試行してください。'
             };
             
-            showStatus(messages[error.code] || '位置情報取得エラーが発生しました', 'error');
+            const message = messages[error.code] || '位置情報取得エラーが発生しました';
+            addDebugLog(`エラー(コード${error.code}): ${message}`);
+            
+            showStatus(message, 'error');
             stopMeasurement();
         }
 
