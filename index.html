@@ -189,7 +189,6 @@
         }
 
         .debug-card {
-            display: block !important;
             background: rgba(255, 255, 255, 0.9);
         }
 
@@ -287,22 +286,26 @@
 
         // デバッグ情報を画面に表示する関数
         function addDebugLog(message) {
+            // デバッグカードが存在する場合のみ画面に表示
             const debugInfo = document.getElementById('debugInfo');
-            const timestamp = new Date().toLocaleTimeString('ja-JP');
-            
-            const newLog = `[${timestamp}] ${message}\n`;
-            debugInfo.textContent += newLog;
-            
-            // 古いログを削除（最新15行のみ保持）
-            const lines = debugInfo.textContent.split('\n');
-            if (lines.length > 16) {
-                debugInfo.textContent = lines.slice(-16).join('\n');
+            if (debugInfo) {
+                const timestamp = new Date().toLocaleTimeString('ja-JP');
+                
+                const newLog = `[${timestamp}] ${message}\n`;
+                debugInfo.textContent += newLog;
+                
+                // 古いログを削除（最新15行のみ保持）
+                const lines = debugInfo.textContent.split('\n');
+                if (lines.length > 16) {
+                    debugInfo.textContent = lines.slice(-16).join('\n');
+                }
+                
+                // 自動スクロール
+                debugInfo.scrollTop = debugInfo.scrollHeight;
             }
             
-            // 自動スクロール
-            debugInfo.scrollTop = debugInfo.scrollHeight;
-            
-            console.log(`[${timestamp}] ${message}`);
+            // コンソールには常に出力（開発者ツールで確認可能）
+            console.log(`[${new Date().toLocaleTimeString('ja-JP')}] ${message}`);
         }
 
         async function startMeasurement() {
