@@ -187,23 +187,6 @@
             font-size: 12px;
             margin-top: 15px;
         }
-
-        .debug-card {
-            background: rgba(255, 255, 255, 0.9);
-        }
-
-        .debug-info {
-            font-family: monospace;
-            font-size: 11px;
-            color: #555;
-            white-space: pre-line;
-            margin-top: 10px;
-            max-height: 200px;
-            overflow-y: auto;
-            background: #f8f9fa;
-            padding: 10px;
-            border-radius: 5px;
-        }
     </style>
 </head>
 <body>
@@ -218,14 +201,12 @@
             <button class="btn btn-stop" id="stopBtn" onclick="stopMeasurement()" style="display: none;">⏹️ 計測停止</button>
         </div>
 
-        <!-- デバッグ情報カード（不要時はこの部分をコメントアウト）
-        <div class="card debug-card" id="debugCard">
+        <div class="card" id="debugCard" style="display: none;">
             <div class="info">
                 <strong>🔧 デバッグ情報:</strong><br>
-                <div id="debugInfo" class="debug-info"></div>
+                <div id="debugInfo" style="font-family: monospace; font-size: 11px; color: #555; white-space: pre-line; margin-top: 10px; max-height: 150px; overflow-y: auto;"></div>
             </div>
         </div>
-        -->
 
         <div id="status" class="status status-idle">
             計測を開始してください
@@ -270,11 +251,11 @@
         <div class="card">
             <div class="info">
                 <strong>📱 対応機能:</strong><br>
-                • 高度: GPS位置情報から取得（PCでは制限あり）<br>
-                • 気温・湿度: 位置情報・時刻から推定<br>
+                • 高度: GPS位置情報から取得<br>
+                • 気温・湿度: 外部気象APIから推定<br>
                 • HTTPS環境でのみ動作します<br>
-                • PCでは高度情報が取得できない場合があります<br>
-                • 気象データは高度がなくても表示されます
+                • 屋外での使用を推奨します<br>
+                • 高度情報が取得できない場合、気象データは表示されません
             </div>
         </div>
     </div>
@@ -286,31 +267,22 @@
 
         // デバッグ情報を画面に表示する関数
         function addDebugLog(message) {
-            // デバッグカードが存在する場合のみ画面に表示
             const debugInfo = document.getElementById('debugInfo');
-            if (debugInfo) {
-                const timestamp = new Date().toLocaleTimeString('ja-JP');
-                
-                const newLog = `[${timestamp}] ${message}\n`;
-                debugInfo.textContent += newLog;
-                
-                // 古いログを削除（最新15行のみ保持）
-                const lines = debugInfo.textContent.split('\n');
-                if (lines.length > 16) {
-                    debugInfo.textContent = lines.slice(-16).join('\n');
-                }
-                
-                // 自動スクロール
-                debugInfo.scrollTop = debugInfo.scrollHeight;
-            }
+            const debugCard = document.getElementById('debugCard');
+            const timestamp = new Date().toLocaleTimeString('ja-JP');
             
-            // コンソールには常に出力（開発者ツールで確認可能）
-            console.log(`[${new Date().toLocaleTimeString('ja-JP')}] ${message}`);
+            //debugCard.style.display = 'block';
+            debugInfo.textContent += `[${timestamp}] ${message}\n`;
+            
+            // 古いログを削除（最新10行のみ保持）
+            const lines = debugInfo.textContent.split('\n');
+            if (lines.length > 11) {
+                debugInfo.textContent = lines.slice(-11).join('\n');
+            }
         }
 
-        async function startMeasurement() {
+        function startMeasurement() {
             if (!navigator.geolocation) {
-                addDebugLog('ERROR: Geolocation API not supported');
                 showStatus('位置情報がサポートされていません', 'error');
                 return;
             }
@@ -320,9 +292,7 @@
             
             // デバッグログをクリア
             document.getElementById('debugInfo').textContent = '';
-            addDebugLog('=== 計測開始 ===');
-            addDebugLog(`User Agent: ${navigator.userAgent.substring(0, 50)}...`);
-            addDebugLog(`Location: ${location.protocol}//${location.host}`);
+            addDebugLog('計測開始');
             
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'inline-block';
@@ -333,45 +303,22 @@
 
             const options = {
                 enableHighAccuracy: true,
-                timeout: 20000,
+                timeout: 15000,
                 maximumAge: 0
             };
 
-            addDebugLog(`GPS options: ${JSON.stringify(options)}`);
-
-            try {
-                // 一度きりの位置取得でテスト
-                addDebugLog('getCurrentPosition()でテスト取得中...');
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        addDebugLog('getCurrentPosition成功');
-                        handlePositionSuccess(position);
-                        
-                        // 成功したらwatchPositionを開始
-                        addDebugLog('watchPosition開始');
-                        watchId = navigator.geolocation.watchPosition(
-                            handlePositionSuccess,
-                            handlePositionError,
-                            options
-                        );
-                    },
-                    (error) => {
-                        addDebugLog(`getCurrentPosition失敗: ${error.message}`);
-                        handlePositionError(error);
-                    },
-                    options
-                );
-            } catch (error) {
-                addDebugLog(`Exception: ${error.message}`);
-                showStatus('位置情報取得でエラーが発生しました', 'error');
-            }
+            addDebugLog('位置情報取得開始');
+            watchId = navigator.geolocation.watchPosition(
+                handlePosition,
+                handleError,
+                options
+            );
         }
 
         function stopMeasurement() {
             if (watchId !== null) {
                 navigator.geolocation.clearWatch(watchId);
                 watchId = null;
-                addDebugLog('watchPosition停止');
             }
             
             isTracking = false;
@@ -380,37 +327,33 @@
             document.getElementById('loading').style.display = 'none';
             
             showStatus('計測を停止しました', 'idle');
-            addDebugLog('=== 計測停止 ===');
         }
 
-        async function handlePositionSuccess(position) {
+        async function handlePosition(position) {
             measurementCount++;
-            addDebugLog(`=== 位置情報取得成功 (${measurementCount}回目) ===`);
-            
-            const coords = position.coords;
-            addDebugLog(`緯度: ${coords.latitude}`);
-            addDebugLog(`経度: ${coords.longitude}`);
-            addDebugLog(`精度: ${coords.accuracy}m`);
-            addDebugLog(`高度: ${coords.altitude}`);
-            addDebugLog(`高度精度: ${coords.altitudeAccuracy}`);
-            addDebugLog(`方角: ${coords.heading}`);
-            addDebugLog(`速度: ${coords.speed}`);
-            addDebugLog(`タイムスタンプ: ${new Date(position.timestamp).toLocaleString('ja-JP')}`);
+            addDebugLog(`位置情報取得成功 (${measurementCount}回目)`);
+            addDebugLog(`緯度: ${position.coords.latitude.toFixed(4)}, 経度: ${position.coords.longitude.toFixed(4)}`);
             
             document.getElementById('loading').style.display = 'none';
             document.getElementById('dataCard').style.display = 'block';
             
             showStatus(`計測中... (${measurementCount}回目)`, 'measuring');
 
-            // 高度情報の更新
-            updateAltitude(position);
+            // 高度情報の更新と取得可否の確認
+            const hasAltitude = updateAltitude(position);
+            addDebugLog(`高度取得: ${hasAltitude ? '成功' : '失敗'}`);
             
-            // 気象データの更新（高度がなくても実行）
-            try {
-                await updateWeatherData(coords.latitude, coords.longitude, coords.altitude);
-                addDebugLog('気象データ更新完了');
-            } catch (error) {
-                addDebugLog(`気象データ更新エラー: ${error.message}`);
+            // 高度が取得できる場合のみ気象情報を取得
+            if (hasAltitude) {
+                await updateWeatherData(position.coords.latitude, position.coords.longitude, position.coords.altitude);
+            } else {
+                addDebugLog('高度なしのため気象データスキップ');
+                // 高度が取得できない場合は気象データを非表示にする
+                document.getElementById('temperature').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('temperatureNote').textContent = '高度情報が必要です';
+                
+                document.getElementById('humidity').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('humidityNote').textContent = '高度情報が必要です';
             }
             
             // 更新時刻の表示
@@ -422,108 +365,114 @@
             const altitude = position.coords.altitude;
             const accuracy = position.coords.altitudeAccuracy;
             
-            addDebugLog(`高度処理: altitude=${altitude}, accuracy=${accuracy}`);
+            addDebugLog(`高度情報: ${altitude}m, 精度: ${accuracy}m`);
             
-            if (altitude !== null && altitude !== undefined && !isNaN(altitude)) {
+            if (altitude !== null && altitude !== undefined) {
                 document.getElementById('altitude').innerHTML = `${altitude.toFixed(1)}<span class="metric-unit">m</span>`;
                 document.getElementById('altitudeAccuracy').textContent = 
-                    (accuracy && !isNaN(accuracy)) ? `精度: ±${accuracy.toFixed(1)}m` : '精度: 不明';
-                addDebugLog('高度表示: 成功');
-                return true;
+                    accuracy ? `精度: ±${accuracy.toFixed(1)}m` : '精度: 不明';
+                return true; // 高度取得成功
             } else {
                 document.getElementById('altitude').innerHTML = `取得不可<span class="metric-unit"></span>`;
-                document.getElementById('altitudeAccuracy').textContent = 'GPS高度情報なし（PCでは一般的）';
-                addDebugLog('高度表示: なし（PCでは正常）');
-                return false;
+                document.getElementById('altitudeAccuracy').textContent = 'GPS高度情報なし';
+                return false; // 高度取得失敗
             }
         }
 
         async function updateWeatherData(lat, lon, altitude) {
-            addDebugLog('気象データ計算開始');
-            
-            // 高度がない場合は0mとして計算（海抜0m）
-            const effectiveAltitude = (altitude !== null && !isNaN(altitude)) ? altitude : 0;
-            addDebugLog(`計算用高度: ${effectiveAltitude}m`);
-            
-            const temperature = simulateTemperature(lat, lon, effectiveAltitude);
-            const humidity = simulateHumidity(lat, lon, effectiveAltitude);
-            
-            addDebugLog(`計算結果: 気温${temperature.toFixed(1)}°C, 湿度${humidity.toFixed(0)}%`);
-            
-            document.getElementById('temperature').innerHTML = `${temperature.toFixed(1)}<span class="metric-unit">°C</span>`;
-            document.getElementById('temperatureNote').textContent = altitude !== null ? 
-                '推定値（高度・位置情報基準）' : '推定値（位置情報・海抜0m基準）';
-            
-            document.getElementById('humidity').innerHTML = `${humidity.toFixed(0)}<span class="metric-unit">%</span>`;
-            document.getElementById('humidityNote').textContent = altitude !== null ? 
-                '推定値（高度・位置情報基準）' : '推定値（位置情報・海抜0m基準）';
+            try {
+                addDebugLog('気象データ計算開始');
+                // 気温と湿度を高度を考慮してシミュレート
+                const temperature = simulateTemperature(lat, lon, altitude);
+                const humidity = simulateHumidity(lat, lon, altitude);
+                
+                addDebugLog(`計算結果: 気温${temperature.toFixed(1)}°C, 湿度${humidity.toFixed(0)}%`);
+                
+                document.getElementById('temperature').innerHTML = `${temperature.toFixed(1)}<span class="metric-unit">°C</span>`;
+                document.getElementById('temperatureNote').textContent = '推定値（高度・位置情報基準）';
+                
+                document.getElementById('humidity').innerHTML = `${humidity.toFixed(0)}<span class="metric-unit">%</span>`;
+                document.getElementById('humidityNote').textContent = '推定値（高度・位置情報基準）';
+                
+            } catch (error) {
+                addDebugLog(`エラー: ${error.message}`);
+                document.getElementById('temperature').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('temperatureNote').textContent = '気象データ取得エラー';
+                
+                document.getElementById('humidity').innerHTML = `取得不可<span class="metric-unit"></span>`;
+                document.getElementById('humidityNote').textContent = '気象データ取得エラー';
+            }
         }
 
         function simulateTemperature(lat, lon, altitude) {
-            const month = new Date().getMonth();
+            // 現在の季節に応じた基準気温（8月なので夏季）
+            const month = new Date().getMonth(); // 0-11 (7=8月)
+            let baseTemp;
+            
+            // 月別の平均気温（日本の平均的な値）
             const monthlyAvgTemp = [5, 7, 11, 16, 21, 25, 28, 29, 25, 19, 13, 7];
-            let baseTemp = monthlyAvgTemp[month];
+            baseTemp = monthlyAvgTemp[month];
             
-            // 時間による変動
+            // 時間による変動（日較差: 最高気温は14時頃、最低気温は5時頃）
             const hour = new Date().getHours();
-            const timeVariation = Math.sin((hour - 5) * Math.PI / 12) * 4;
+            const timeVariation = Math.sin((hour - 5) * Math.PI / 12) * 4; // ±4度の変動
             
-            // 高度による影響（高度が負の場合は0として扱う）
-            const effectiveAltitude = Math.max(0, altitude);
-            const altitudeEffect = -(effectiveAltitude / 100) * 0.6;
+            // 高度による影響（100mごとに約0.6°C下がる）- 高度が低い場合は影響を小さく
+            const altitudeEffect = altitude > 0 ? -(altitude / 100) * 0.6 : 0;
             
-            // 緯度による微調整
-            const latEffect = (lat < 35) ? (35 - lat) * 0.3 : -(lat - 35) * 0.3;
+            // 緯度による微調整（日本国内での緯度差による影響は小さく）
+            const latEffect = (lat < 35) ? (35 - lat) * 0.2 : -(lat - 35) * 0.2;
             
-            // ランダム変動
+            // 小さなランダム変動
             const randomVariation = (Math.random() - 0.5) * 2;
             
             const finalTemp = baseTemp + timeVariation + altitudeEffect + latEffect + randomVariation;
             
-            addDebugLog(`気温計算: 基準${baseTemp}°C + 時間${timeVariation.toFixed(1)}°C + 高度${altitudeEffect.toFixed(1)}°C + 緯度${latEffect.toFixed(1)}°C = ${finalTemp.toFixed(1)}°C`);
+            // デバッグ情報を画面に表示
+            addDebugLog(`気温計算詳細:`);
+            addDebugLog(`基準${baseTemp}°C + 時間${timeVariation.toFixed(1)}°C + 高度${altitudeEffect.toFixed(1)}°C + 緯度${latEffect.toFixed(1)}°C + ランダム${randomVariation.toFixed(1)}°C`);
+            addDebugLog(`= ${finalTemp.toFixed(1)}°C`);
             
+            // 現実的な範囲に制限
             return Math.max(-10, Math.min(45, finalTemp));
         }
 
         function simulateHumidity(lat, lon, altitude) {
-            const baseHumidity = 65; // 8月の平均湿度
+            // 基本湿度（日本の平均的な湿度60%を基準）
+            const baseHumidity = 60;
             
-            const effectiveAltitude = Math.max(0, altitude);
-            const altitudeEffect = -(effectiveAltitude / 1000) * 8;
+            // 高度による影響（高度が上がると湿度は下がる傾向）
+            const altitudeEffect = -(altitude / 1000) * 10;
             
+            // 時間による変動（朝夕は湿度が高い）
             const hour = new Date().getHours();
-            const timeVariation = Math.cos(hour * Math.PI / 12) * 8;
+            const timeVariation = Math.cos(hour * Math.PI / 12) * 10;
             
+            // 季節による変動
             const month = new Date().getMonth();
-            const seasonVariation = month >= 5 && month <= 8 ? 10 : -5; // 夏は高湿度
+            const seasonVariation = Math.sin((month - 6) * Math.PI / 6) * 15;
             
-            const randomVariation = (Math.random() - 0.5) * 8;
+            // ランダムな変動
+            const randomVariation = (Math.random() - 0.5) * 10;
             
             const finalHumidity = baseHumidity + altitudeEffect + timeVariation + seasonVariation + randomVariation;
             
-            return Math.max(30, Math.min(90, finalHumidity));
+            return Math.max(20, Math.min(95, finalHumidity));
         }
 
-        function handlePositionError(error) {
+        function handleError(error) {
             document.getElementById('loading').style.display = 'none';
             
-            const errorMessages = {
-                1: 'PERMISSION_DENIED: 位置情報アクセスが拒否されました',
-                2: 'POSITION_UNAVAILABLE: 位置情報を取得できません',
-                3: 'TIMEOUT: 位置情報取得がタイムアウトしました'
+            const messages = {
+                1: '位置情報アクセスが拒否されました。ブラウザの設定を確認してください。',
+                2: '位置情報を取得できません。GPS信号が弱い可能性があります。',
+                3: '位置情報取得がタイムアウトしました。屋外で再試行してください。'
             };
             
-            const errorDetails = errorMessages[error.code] || `UNKNOWN_ERROR (${error.code})`;
-            addDebugLog(`GPS ERROR: ${errorDetails}`);
-            addDebugLog(`Error message: ${error.message}`);
+            const message = messages[error.code] || '位置情報取得エラーが発生しました';
+            addDebugLog(`エラー(コード${error.code}): ${message}`);
             
-            const userMessage = {
-                1: '位置情報アクセスが拒否されました。ブラウザの設定で位置情報を許可してください。',
-                2: '位置情報を取得できません。GPS信号が弱いか、デバイスが対応していない可能性があります。',
-                3: '位置情報取得がタイムアウトしました。再度お試しください。'
-            }[error.code] || '位置情報取得エラーが発生しました';
-            
-            showStatus(userMessage, 'error');
+            showStatus(message, 'error');
             stopMeasurement();
         }
 
@@ -535,43 +484,17 @@
 
         // ページ読み込み時の初期化
         document.addEventListener('DOMContentLoaded', function() {
-            addDebugLog('=== アプリ初期化 ===');
-            
             // HTTPS チェック
             if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-                addDebugLog('ERROR: HTTPS required');
                 showStatus('HTTPS環境でのみ動作します', 'error');
                 document.getElementById('startBtn').disabled = true;
-                return;
             }
-            
-            // Geolocation API サポートチェック
-            if (navigator.geolocation) {
-                addDebugLog('Geolocation API: サポート');
-            } else {
-                addDebugLog('ERROR: Geolocation API not supported');
-                showStatus('このブラウザは位置情報をサポートしていません', 'error');
-                document.getElementById('startBtn').disabled = true;
-                return;
-            }
-            
-            // 権限状態をチェック（可能であれば）
-            if (navigator.permissions) {
-                navigator.permissions.query({name: 'geolocation'}).then(function(result) {
-                    addDebugLog(`位置情報権限: ${result.state}`);
-                }).catch(function(error) {
-                    addDebugLog(`権限チェックエラー: ${error.message}`);
-                });
-            }
-            
-            addDebugLog('初期化完了');
         });
 
-        // ページを離れる時のクリーンアップ
+        // ページを離れる時の cleanup
         window.addEventListener('beforeunload', function() {
             if (watchId !== null) {
                 navigator.geolocation.clearWatch(watchId);
-                addDebugLog('beforeunload: watchPosition停止');
             }
         });
     </script>
